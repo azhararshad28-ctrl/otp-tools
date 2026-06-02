@@ -13,7 +13,8 @@
     ],
     "routes": [
         {
-            "handle": "filesystem"
+            "src": "/(build|css|js|images|fonts|filament)/(.*)",
+            "dest": "/public/$1/$2"
         },
         {
             "src": "/(.*)",
