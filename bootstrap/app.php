@@ -20,3 +20,9 @@ return Application::configure(basePath: dirname(__DIR__))
             fn (Request $request) => $request->is('api/*'),
         );
     })->create();
+
+if (isset($_ENV['VERCEL_URL']) || isset($_SERVER['VERCEL_URL'])) {
+    $app->useStoragePath('/tmp/storage');
+}
+
+return $app;
