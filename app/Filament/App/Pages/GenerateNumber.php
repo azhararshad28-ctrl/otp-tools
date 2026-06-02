@@ -8,7 +8,7 @@ use Filament\Forms\Concerns\InteractsWithForms;
 use App\Models\Country;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
-use Filament\Forms\Form;
+use Filament\Schemas\Schema;
 use Filament\Actions\Action;
 use App\Services\ProviderInterface;
 use Filament\Notifications\Notification;
@@ -34,10 +34,10 @@ class GenerateNumber extends Page implements HasForms
         $this->form->fill();
     }
 
-    public function form(Form $form): Form
+    public function form(Schema $schema): Schema
     {
-        return $form
-            ->schema([
+        return $schema
+            ->components([
                 Select::make('country_id')
                     ->label('Select Country')
                     ->options(Country::where('is_active', true)->pluck('name', 'id'))
