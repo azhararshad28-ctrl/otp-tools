@@ -5,10 +5,24 @@ if (isset($_ENV['VERCEL_URL']) || isset($_SERVER['VERCEL_URL'])) {
     if (!is_dir($storage.'/framework/cache/data')) mkdir($storage.'/framework/cache/data', 0777, true);
     if (!is_dir($storage.'/framework/sessions')) mkdir($storage.'/framework/sessions', 0777, true);
     if (!is_dir($storage.'/logs')) mkdir($storage.'/logs', 0777, true);
+    if (!is_dir($storage.'/bootstrap/cache')) mkdir($storage.'/bootstrap/cache', 0777, true);
     
     putenv('VIEW_COMPILED_PATH=' . $storage.'/framework/views');
     $_ENV['VIEW_COMPILED_PATH'] = $storage.'/framework/views';
     $_SERVER['VIEW_COMPILED_PATH'] = $storage.'/framework/views';
+
+    $cachePaths = [
+        'APP_SERVICES_CACHE' => $storage.'/bootstrap/cache/services.php',
+        'APP_PACKAGES_CACHE' => $storage.'/bootstrap/cache/packages.php',
+        'APP_CONFIG_CACHE' => $storage.'/bootstrap/cache/config.php',
+        'APP_ROUTES_CACHE' => $storage.'/bootstrap/cache/routes.php',
+        'APP_EVENTS_CACHE' => $storage.'/bootstrap/cache/events.php',
+    ];
+    foreach ($cachePaths as $key => $path) {
+        putenv("$key=$path");
+        $_ENV[$key] = $path;
+        $_SERVER[$key] = $path;
+    }
 }
 
 try {
