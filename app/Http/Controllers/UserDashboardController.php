@@ -63,7 +63,7 @@ class UserDashboardController extends Controller
                 PhoneNumber::create([
                     'user_id' => Auth::id(),
                     'country_id' => $country->id,
-                    'phone_number' => $response['data']['phone_number'] ?? 'N/A',
+                    'number' => $response['data']['phone_number'] ?? 'N/A',
                     'service' => $validated['service'],
                     'provider_order_id' => $response['data']['order_id'] ?? null,
                     'status' => 'active',
