@@ -16,6 +16,13 @@ $app = Application::configure(basePath: dirname(__DIR__))
         //
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        $exceptions->reportable(function (Throwable $e) {
+            echo "<h2>ORIGINAL ERROR DETECTED BEFORE RENDER CRASH:</h2>";
+            echo "<b>Message:</b> " . htmlspecialchars($e->getMessage()) . "<br><br>";
+            echo "<b>File:</b> " . $e->getFile() . " (Line " . $e->getLine() . ")<br><br>";
+            echo "<pre>" . htmlspecialchars($e->getTraceAsString()) . "</pre>";
+            exit;
+        });
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => true,
         );
