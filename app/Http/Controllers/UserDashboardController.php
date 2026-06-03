@@ -95,7 +95,7 @@ class UserDashboardController extends Controller
 
     public function showGenerate()
     {
-        $countries = \Illuminate\Support\Facades\Cache::remember('active_countries', 600, function () {
+        $countries = \Illuminate\Support\Facades\Cache::remember('countries_active_list_v1', 600, function () {
             return Country::where('status', true)->get();
         });
         return view('user.generate', compact('countries'));
@@ -154,8 +154,8 @@ class UserDashboardController extends Controller
                 // Ensure the country is marked as active in stock
                 if (!$country->status) {
                     $country->update(['status' => true]);
-                    \Illuminate\Support\Facades\Cache::forget('active_countries');
-                    \Illuminate\Support\Facades\Cache::forget('active_countries_api');
+                    \Illuminate\Support\Facades\Cache::forget('countries_active_list_v1');
+                    \Illuminate\Support\Facades\Cache::forget('countries_active_api_v1');
                 }
 
                 NumberRotationService::logEvent('NUMBER_ACQUIRED', "Acquired number +{$fullPhoneNumber} for " . ucfirst($validated['service']));
@@ -168,8 +168,8 @@ class UserDashboardController extends Controller
                 $isRateLimit = isset($response['message']) && str_contains($response['message'], '429');
                 if (!$isRateLimit) {
                     $country->update(['status' => false]);
-                    \Illuminate\Support\Facades\Cache::forget('active_countries');
-                    \Illuminate\Support\Facades\Cache::forget('active_countries_api');
+                    \Illuminate\Support\Facades\Cache::forget('countries_active_list_v1');
+                    \Illuminate\Support\Facades\Cache::forget('countries_active_api_v1');
                 }
 
                 $errorMessage = 'Selected country is currently out of stock. Please select another country.';
@@ -206,7 +206,7 @@ class UserDashboardController extends Controller
 
     public function getActiveCountries()
     {
-        $countries = \Illuminate\Support\Facades\Cache::remember('active_countries_api', 600, function () {
+        $countries = \Illuminate\Support\Facades\Cache::remember('countries_active_api_v1', 600, function () {
             return Country::where('status', true)->get(['id', 'name', 'code']);
         });
         return response()->json([
