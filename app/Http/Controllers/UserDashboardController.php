@@ -118,6 +118,52 @@ class UserDashboardController extends Controller
         ]);
     }
 
+    public function pollActiveSms(ProviderInterface $apiService)
+    {
+        $numbers = PhoneNumber::with('country')->where('user_id', Auth::id())->where('status', 'active')->get();
+        $results = [];
+
+        foreach ($numbers as $number) {
+            try {
+                $response = $apiService->checkSmsHistory($number->country->code ?? 'US', $number->number);
+                
+                if (isset($response['success']) && $response['success'] == true && !empty($response['data'])) {
+                    // Extract latest SMS
+                    $latestSms = $response['data'][0]; // This is an array with ['from', 'text', 'myNumber', 'createdAt']
+                    
+                    // Parse out a potential OTP (4 to 8 digits)
+                    $otp = null;
+                    if (preg_match('/\b\d{4,8}\b/', $latestSms['text'], $matches)) {
+                        $otp = $matches[0];
+                    }
+                    
+                    $results[$number->id] = [
+                        'has_sms' => true,
+                        'text' => $latestSms['text'],
+                        'otp' => $otp,
+                        'from' => $latestSms['from'],
+                        'time' => $latestSms['createdAt'] ?? 'just now'
+                    ];
+                } else {
+                    $results[$number->id] = [
+                        'has_sms' => false,
+                        'message' => 'Waiting for SMS...'
+                    ];
+                }
+            } catch (\Exception $e) {
+                $results[$number->id] = [
+                    'has_sms' => false,
+                    'message' => 'Connection error'
+                ];
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'sms_data' => $results
+        ]);
+    }
+
     public function checkSms($id, ProviderInterface $apiService)
     {
         $number = PhoneNumber::with('country')->where('user_id', Auth::id())->findOrFail($id);
