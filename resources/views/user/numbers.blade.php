@@ -75,7 +75,7 @@
         const display = document.getElementById('smsDisplay');
         
         modal.classList.add('active');
-        display.innerHTML = '<span style="color:var(--text-secondary)">Establishing secure connection to Zyla API...</span>';
+        display.innerHTML = '<span style="color:var(--text-secondary)">Establishing secure connection to SMS Gateway...</span>';
 
         fetch(`/app/sms/${id}`)
             .then(res => res.json())
