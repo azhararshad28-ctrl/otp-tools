@@ -120,9 +120,25 @@ class UserDashboardController extends Controller
             $candidates = [];
 
             foreach ($countries as $c) {
-                $response = $apiService->getNumberByCountry($c->code);
-                if (isset($response['success']) && $response['success'] == true && !empty($response['data'])) {
-                    foreach ($response['data'] as $num) {
+                $cacheKey = "api_numbers_pool_{$c->code}";
+                $numbers = \Illuminate\Support\Facades\Cache::get($cacheKey);
+
+                if ($numbers === null) {
+                    // Introduce a small sleep of 200ms to throttle requests if multiple hits occur
+                    usleep(200000);
+                    $response = $apiService->getNumberByCountry($c->code);
+                    if (isset($response['success']) && $response['success'] == true && !empty($response['data'])) {
+                        $numbers = $response['data'];
+                        \Illuminate\Support\Facades\Cache::put($cacheKey, $numbers, 120); // Cache for 2 minutes on success
+                    } else {
+                        $numbers = [];
+                        // Cache empty or failed responses briefly (10 seconds) to avoid immediate server hammer
+                        \Illuminate\Support\Facades\Cache::put($cacheKey, $numbers, 10);
+                    }
+                }
+
+                if (!empty($numbers)) {
+                    foreach ($numbers as $num) {
                         $candidates[] = [
                             'number' => $num,
                             'country_id' => $c->id,
