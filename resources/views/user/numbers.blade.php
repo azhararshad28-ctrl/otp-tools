@@ -92,6 +92,8 @@
                             <th>Target Service</th>
                             <th>Region/Country</th>
                             <th>Status</th>
+                            <th>Quality</th>
+                            <th>Usage Stats</th>
                             <th>Acquired At</th>
                             <th>Latest SMS / OTP</th>
                         </tr>
@@ -116,6 +118,21 @@
                                 @else
                                     <span class="badge" style="background: rgba(239, 68, 68, 0.1); color: var(--danger);">Closed</span>
                                 @endif
+                            </td>
+                            <td>
+                                @php
+                                    $score = $num->reputation_score;
+                                    $color = 'var(--success)';
+                                    if ($score < 50) $color = 'var(--danger)';
+                                    elseif ($score < 80) $color = 'var(--warning)';
+                                @endphp
+                                <div style="display: flex; align-items: center; gap: 6px; font-weight: 600; color: {{ $color }}; font-size: 0.95rem;">
+                                    <i class="fa-solid fa-heart-pulse"></i> {{ $score }}/100
+                                </div>
+                            </td>
+                            <td style="font-size: 0.9rem; color: var(--text-secondary);">
+                                <span title="Successful OTPs" style="color: var(--success); font-weight: 600;">{{ $num->success_count }} Ok</span> / 
+                                <span title="Failed/Discarded OTPs" style="color: var(--danger); font-weight: 600;">{{ $num->fail_count }} Fail</span>
                             </td>
                             <td style="color: var(--text-secondary); font-size: 0.9rem;">
                                 {{ $num->created_at->diffForHumans() }}

@@ -15,16 +15,16 @@ Route::get('/setup-db', function () {
 use App\Http\Controllers\UserDashboardController;
 
 Route::get('/app/login', [UserDashboardController::class, 'showLogin'])->name('login');
-Route::post('/app/login', [UserDashboardController::class, 'login']);
+Route::post('/app/login', [UserDashboardController::class, 'login'])->middleware('throttle:5,1');
 Route::post('/app/logout', [UserDashboardController::class, 'logout'])->name('logout');
 
 Route::middleware('auth')->group(function () {
     Route::get('/app', [UserDashboardController::class, 'index'])->name('dashboard');
     Route::get('/app/generate', [UserDashboardController::class, 'showGenerate'])->name('generate.page');
     Route::get('/app/numbers', [UserDashboardController::class, 'showNumbers'])->name('numbers.page');
-    Route::post('/app/generate', [UserDashboardController::class, 'generate'])->name('generate.number');
+    Route::post('/app/generate', [UserDashboardController::class, 'generate'])->name('generate.number')->middleware('throttle:10,1');
     Route::get('/app/countries/active', [UserDashboardController::class, 'getActiveCountries'])->name('countries.active');
     Route::get('/app/sms/poll', [UserDashboardController::class, 'pollActiveSms'])->name('sms.poll');
-    Route::get('/app/sms/{id}', [UserDashboardController::class, 'checkSms'])->name('check.sms');
+    Route::get('/app/sms/{id}', [UserDashboardController::class, 'checkSms'])->name('check.sms')->middleware('throttle:30,1');
     Route::delete('/app/numbers/{id}', [UserDashboardController::class, 'discard'])->name('numbers.discard');
 });

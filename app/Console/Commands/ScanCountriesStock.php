@@ -55,6 +55,10 @@ class ScanCountriesStock extends Command
             }
         }
 
+        // Evict cached lists since statuses have been updated
+        \Illuminate\Support\Facades\Cache::forget('active_countries');
+        \Illuminate\Support\Facades\Cache::forget('active_countries_api');
+
         $this->info('Country stock scan completed!');
     }
 }

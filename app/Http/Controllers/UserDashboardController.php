@@ -6,7 +6,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Models\Country;
 use App\Models\PhoneNumber;
+use App\Models\SystemAuditLog;
 use App\Services\ProviderInterface;
+use App\Services\NumberRotationService;
 
 class UserDashboardController extends Controller
 {
@@ -42,19 +44,70 @@ class UserDashboardController extends Controller
 
     public function index()
     {
-        $numbers = PhoneNumber::where('user_id', Auth::id())->orderBy('created_at', 'desc')->get();
-        return view('user.dashboard', compact('numbers'));
+        $numbers = PhoneNumber::with('country')
+            ->where('user_id', Auth::id())
+            ->where('status', '!=', 'discarded')
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        // Calculate analytics
+        $totalNumbers = PhoneNumber::where('user_id', Auth::id())->count();
+        $activeCount = PhoneNumber::where('user_id', Auth::id())->where('status', 'active')->count();
+        
+        $totalSuccesses = PhoneNumber::where('user_id', Auth::id())->sum('success_count');
+        $totalFailures = PhoneNumber::where('user_id', Auth::id())->sum('fail_count');
+        $totalAttempts = $totalSuccesses + $totalFailures;
+        
+        $successRate = $totalAttempts > 0 ? round(($totalSuccesses / $totalAttempts) * 100, 1) : 100.0;
+        $avgHealthScore = round(PhoneNumber::where('user_id', Auth::id())->avg('reputation_score') ?? 100.0, 1);
+
+        // Fetch country-wise stats
+        $countryStats = Country::where('status', true)->get()->map(function ($country) {
+            $successes = PhoneNumber::where('country_id', $country->id)->sum('success_count');
+            $failures = PhoneNumber::where('country_id', $country->id)->sum('fail_count');
+            $total = $successes + $failures;
+            $rate = $total > 0 ? round(($successes / $total) * 100) : 100;
+            $totalNumbers = PhoneNumber::where('country_id', $country->id)->count();
+            return [
+                'name' => $country->name,
+                'code' => $country->code,
+                'total' => $totalNumbers,
+                'rate' => $rate
+            ];
+        })->sortByDesc('total')->take(5)->values()->toArray();
+
+        // Fetch latest audit logs for the dashboard
+        $auditLogs = SystemAuditLog::with('user')
+            ->orderBy('created_at', 'desc')
+            ->take(5)
+            ->get();
+
+        return view('user.dashboard', compact(
+            'numbers',
+            'totalNumbers',
+            'activeCount',
+            'successRate',
+            'avgHealthScore',
+            'countryStats',
+            'auditLogs'
+        ));
     }
 
     public function showGenerate()
     {
-        $countries = Country::where('status', true)->get();
+        $countries = \Illuminate\Support\Facades\Cache::remember('active_countries', 600, function () {
+            return Country::where('status', true)->get();
+        });
         return view('user.generate', compact('countries'));
     }
 
     public function showNumbers()
     {
-        $numbers = PhoneNumber::where('user_id', Auth::id())->orderBy('created_at', 'desc')->get();
+        $numbers = PhoneNumber::with('country')
+            ->where('user_id', Auth::id())
+            ->where('status', '!=', 'discarded')
+            ->orderBy('created_at', 'desc')
+            ->get();
         return view('user.numbers', compact('numbers'));
     }
 
@@ -70,91 +123,53 @@ class UserDashboardController extends Controller
         try {
             $response = $apiService->getNumberByCountry($country->code);
             
-            // The RapidAPI returns a flat array of numbers: ["7348624600"]
             if (isset($response['success']) && $response['success'] == true && !empty($response['data'])) {
                 $numbersList = $response['data'];
-                $selectedNumber = null;
-                $serviceName = strtolower($validated['service']);
-
-                foreach ($numbersList as $phoneNumberValue) {
-                    // Prepend country code if the number does not already start with it
-                    $fullPhoneNumber = $phoneNumberValue;
-                    if (!str_starts_with($phoneNumberValue, $country->code)) {
-                        $fullPhoneNumber = $country->code . $phoneNumberValue;
-                    }
-
-                    // Pre-scan SMS history for the selected service
-                    $isUsedExceeded = false;
-                    $historyResponse = $apiService->checkSmsHistory($country->code, $fullPhoneNumber);
-                    
-                    if (isset($historyResponse['success']) && $historyResponse['success'] == true && !empty($historyResponse['data'])) {
-                        $msgCount = 0;
-                        
-                        // Define keywords for the selected service to filter SMS history
-                        $keywords = [$serviceName];
-                        if ($serviceName === 'facebook' || $serviceName === 'instagram') {
-                            $keywords = ['facebook', 'instagram', 'meta', 'fb', 'ig'];
-                        } elseif ($serviceName === 'google') {
-                            $keywords = ['google', 'gmail', 'g-'];
-                        } elseif ($serviceName === 'whatsapp') {
-                            $keywords = ['whatsapp', 'wa'];
-                        } elseif ($serviceName === 'telegram') {
-                            $keywords = ['telegram', 'tg'];
-                        } elseif ($serviceName === 'twitter') {
-                            $keywords = ['twitter', 'x.com', 'x '];
-                        }
-
-                        foreach ($historyResponse['data'] as $msg) {
-                            $text = strtolower($msg['text'] ?? '');
-                            $from = strtolower($msg['from'] ?? '');
-                            
-                            foreach ($keywords as $kw) {
-                                if (str_contains($text, $kw) || str_contains($from, $kw)) {
-                                    $msgCount++;
-                                    break; // Count once per message
-                                }
-                            }
-                        }
-
-                        // Reject if used more than 2 times (3 or more) for the selected platform
-                        if ($msgCount >= 3) {
-                            $isUsedExceeded = true;
-                        }
-                    }
-
-                    if (!$isUsedExceeded) {
-                        $selectedNumber = $fullPhoneNumber;
-                        break; // Found a good, fresh number!
-                    }
-                }
+                $rotationService = new NumberRotationService();
+                
+                // Select the best fresh or high-reputation number from the list
+                $selectedNumber = $rotationService->selectBestNumber($numbersList, $country->id, $validated['service']);
 
                 if ($selectedNumber === null) {
+                    NumberRotationService::logEvent('GENERATION_BLOCKED', "All numbers in {$country->name} are blocked or used for " . ucfirst($validated['service']));
                     return back()->with('error', 'All available numbers for ' . $country->name . ' have already been used/verified for ' . ucfirst($validated['service']) . '. Please try another country.');
+                }
+
+                // Prepend country code if needed
+                $fullPhoneNumber = $selectedNumber;
+                if (!str_starts_with($selectedNumber, $country->code)) {
+                    $fullPhoneNumber = $country->code . $selectedNumber;
                 }
 
                 $number = PhoneNumber::create([
                     'user_id' => Auth::id(),
                     'country_id' => $country->id,
-                    'number' => $selectedNumber,
+                    'number' => $fullPhoneNumber,
                     'service' => $validated['service'],
                     'provider_order_id' => $response['data']['order_id'] ?? null,
                     'status' => 'active',
+                    'last_used_at' => now(),
                 ]);
 
                 // Ensure the country is marked as active in stock
                 if (!$country->status) {
                     $country->update(['status' => true]);
+                    \Illuminate\Support\Facades\Cache::forget('active_countries');
+                    \Illuminate\Support\Facades\Cache::forget('active_countries_api');
                 }
+
+                NumberRotationService::logEvent('NUMBER_ACQUIRED', "Acquired number +{$fullPhoneNumber} for " . ucfirst($validated['service']));
                 
                 return back()->with('success', 'Number generated and pre-scanned successfully!')
-                             ->with('generated_number', $selectedNumber)
+                             ->with('generated_number', $fullPhoneNumber)
                              ->with('number_id', $number->id);
             } else {
                 // Out of stock or failed API response.
-                // Do NOT disable the country if it was a rate limit / quota exceeded error (429)
                 $isRateLimit = isset($response['message']) && str_contains($response['message'], '429');
                 if (!$isRateLimit) {
                     $country->update(['status' => false]);
+                    \Illuminate\Support\Facades\Cache::forget('active_countries');
+                    \Illuminate\Support\Facades\Cache::forget('active_countries_api');
                 }
 
                 $errorMessage = 'Selected country is currently out of stock. Please select another country.';
@@ -162,9 +177,12 @@ class UserDashboardController extends Controller
                     $errorMessage = $response['message'];
                 }
 
+                NumberRotationService::logEvent('GENERATION_OUT_OF_STOCK', "Generation failed for {$country->name} ({$validated['service']}): {$errorMessage}");
+
                 return back()->with('error', $errorMessage);
             }
         } catch (\Exception $e) {
+            NumberRotationService::logEvent('GENERATION_ERROR', "Exception: " . $e->getMessage());
             return back()->with('error', 'Connection Error: ' . $e->getMessage());
         }
     }
@@ -173,8 +191,14 @@ class UserDashboardController extends Controller
     {
         try {
             $number = PhoneNumber::where('user_id', Auth::id())->findOrFail($id);
-            $number->delete();
-            return back()->with('success', 'Number discarded successfully from inventory.');
+            
+            $rotationService = new NumberRotationService();
+            $rotationService->recordDiscard($number->id);
+            
+            // Mark as discarded in local view instead of fully deleting to preserve logs
+            $number->update(['status' => 'discarded']);
+            
+            return back()->with('success', 'Number discarded successfully.');
         } catch (\Exception $e) {
             return back()->with('error', 'Error: ' . $e->getMessage());
         }
@@ -182,7 +206,9 @@ class UserDashboardController extends Controller
 
     public function getActiveCountries()
     {
-        $countries = Country::where('status', true)->get(['id', 'name', 'code']);
+        $countries = \Illuminate\Support\Facades\Cache::remember('active_countries_api', 600, function () {
+            return Country::where('status', true)->get(['id', 'name', 'code']);
+        });
         return response()->json([
             'success' => true,
             'countries' => $countries
@@ -205,14 +231,20 @@ class UserDashboardController extends Controller
         try {
             $response = $apiService->checkSmsHistory($number->country->code ?? 'US', $number->number);
             
-            // RapidAPI checkSmsHistory returns: [ 'success' => true, 'data' => [ [ 'text' => '...', 'from' => '...', 'createdAt' => '...' ] ] ]
             if (isset($response['success']) && $response['success'] == true && !empty($response['data'])) {
-                $latestSms = $response['data'][0]; // Select the latest message from the array
+                $latestSms = $response['data'][0]; // Select the latest message
                 
                 // Attempt to parse out a 4-to-8 digit OTP from the SMS text
                 $otp = null;
                 if (preg_match('/\b\d{4,8}\b/', $latestSms['text'], $matches)) {
                     $otp = $matches[0];
+                }
+                
+                // Successfully received SMS - close number and record success
+                if ($number->status === 'active') {
+                    $number->update(['status' => 'closed']);
+                    $rotationService = new NumberRotationService();
+                    $rotationService->recordSuccess($number->id);
                 }
                 
                 return response()->json([
