@@ -14,14 +14,15 @@ class ZylaApiService implements ProviderInterface
     public function __construct()
     {
         // Settings are dynamic
-        $this->baseUrl = Setting::where('key', 'api_base_url')->value('value') ?? 'https://zylalabs.com/api/1813/virtual+phone+number+generator+api';
-        $this->apiKey = Setting::where('key', 'api_key')->value('value') ?? '';
+        $this->baseUrl = Setting::where('key', 'api_base_url')->value('value') ?? 'https://virtual-number.p.rapidapi.com/api/v1/e-sim';
+        $this->apiKey = Setting::where('key', 'api_key')->value('value') ?? '5228aeb52fmsh36211b8b7debdcap160432jsn3f823bebfb35';
     }
 
     protected function getHeaders(): array
     {
         return [
-            'Authorization' => 'Bearer ' . $this->apiKey,
+            'x-rapidapi-key' => $this->apiKey,
+            'x-rapidapi-host' => parse_url($this->baseUrl, PHP_URL_HOST) ?? 'virtual-number.p.rapidapi.com',
             'Accept' => 'application/json',
         ];
     }
@@ -30,16 +31,28 @@ class ZylaApiService implements ProviderInterface
     {
         try {
             $response = Http::withHeaders($this->getHeaders())
-                ->get("{$this->baseUrl}/1466/get+countries");
+                ->get("{$this->baseUrl}/all-countries");
             
             if ($response->successful()) {
-                return $response->json();
+                $data = [];
+                foreach ($response->json() as $item) {
+                    if (isset($item['countryCode']) && isset($item['countryName'])) {
+                        $data[] = [
+                            'code' => $item['countryCode'],
+                            'name' => ucwords(str_replace('_', ' ', $item['countryName']))
+                        ];
+                    }
+                }
+                return [
+                    'success' => true,
+                    'data' => $data
+                ];
             }
 
-            Log::error('Zyla API getCountries failed', ['status' => $response->status(), 'response' => $response->body()]);
-            return ['success' => false, 'message' => 'API Error ' . $response->status() . ': ' . $response->body()];
+            Log::error('RapidAPI getCountries failed', ['status' => $response->status(), 'response' => $response->body()]);
+            return ['success' => false, 'message' => 'API Error ' . $response->status()];
         } catch (\Exception $e) {
-            Log::error('Zyla API getCountries exception', ['message' => $e->getMessage()]);
+            Log::error('RapidAPI getCountries exception', ['message' => $e->getMessage()]);
             return ['success' => false, 'message' => 'Connection Error: ' . $e->getMessage()];
         }
     }
@@ -48,18 +61,21 @@ class ZylaApiService implements ProviderInterface
     {
         try {
             $response = Http::withHeaders($this->getHeaders())
-                ->get("{$this->baseUrl}/1467/get+number+by+country+id", [
-                    'countryCode' => $countryCode
+                ->get("{$this->baseUrl}/country-numbers", [
+                    'countryId' => $countryCode
                 ]);
 
             if ($response->successful()) {
-                return $response->json();
+                return [
+                    'success' => true,
+                    'data' => $response->json()
+                ];
             }
 
-            Log::error('Zyla API getNumberByCountry failed', ['status' => $response->status(), 'response' => $response->body()]);
-            return ['success' => false, 'message' => 'API Error ' . $response->status() . ': ' . $response->body()];
+            Log::error('RapidAPI getNumberByCountry failed', ['status' => $response->status(), 'response' => $response->body()]);
+            return ['success' => false, 'message' => 'API Error ' . $response->status()];
         } catch (\Exception $e) {
-            Log::error('Zyla API getNumberByCountry exception', ['message' => $e->getMessage()]);
+            Log::error('RapidAPI getNumberByCountry exception', ['message' => $e->getMessage()]);
             return ['success' => false, 'message' => 'Connection Error: ' . $e->getMessage()];
         }
     }
@@ -67,20 +83,42 @@ class ZylaApiService implements ProviderInterface
     public function checkSmsHistory(string $countryCode, string $phoneNumber): array
     {
         try {
+            // Strip country code prefix if present, as the API expects the local number
+            if (str_starts_with($phoneNumber, $countryCode)) {
+                $phoneNumber = substr($phoneNumber, strlen($countryCode));
+            }
+
             $response = Http::withHeaders($this->getHeaders())
-                ->get("{$this->baseUrl}/1469/check+sms+history", [
-                    'countryCode' => $countryCode,
-                    'phoneNumber' => $phoneNumber
+                ->get("{$this->baseUrl}/view-messages", [
+                    'countryId' => $countryCode,
+                    'number' => $phoneNumber
                 ]);
 
             if ($response->successful()) {
-                return $response->json();
+                $json = $response->json();
+                
+                // Map RapidAPI list format to standard return format for our controller
+                // RapidAPI returns directly: [ { "text": "...", "serviceName": "...", "myNumber": "...", "createdAt": "..." } ]
+                $mappedData = [];
+                foreach ($json as $msg) {
+                    $mappedData[] = [
+                        'from' => $msg['serviceName'] ?? 'Unknown',
+                        'text' => $msg['text'] ?? '',
+                        'myNumber' => $msg['myNumber'] ?? $phoneNumber,
+                        'createdAt' => $msg['createdAt'] ?? 'just now'
+                    ];
+                }
+
+                return [
+                    'success' => true,
+                    'data' => $mappedData
+                ];
             }
 
-            Log::error('Zyla API checkSmsHistory failed', ['status' => $response->status(), 'response' => $response->body()]);
-            return ['success' => false, 'message' => 'API Error ' . $response->status() . ': ' . $response->body()];
+            Log::error('RapidAPI checkSmsHistory failed', ['status' => $response->status(), 'response' => $response->body()]);
+            return ['success' => false, 'message' => 'API Error ' . $response->status()];
         } catch (\Exception $e) {
-            Log::error('Zyla API checkSmsHistory exception', ['message' => $e->getMessage()]);
+            Log::error('RapidAPI checkSmsHistory exception', ['message' => $e->getMessage()]);
             return ['success' => false, 'message' => 'Connection Error: ' . $e->getMessage()];
         }
     }

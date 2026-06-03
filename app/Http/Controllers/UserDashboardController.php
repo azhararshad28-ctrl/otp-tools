@@ -70,17 +70,22 @@ class UserDashboardController extends Controller
         try {
             $response = $apiService->getNumberByCountry($country->code);
             
-            // The Zyla API returns: {"status": 200, "success": true, "message": "", "data": ["number1", "number2"]}
+            // The RapidAPI returns a flat array of numbers: ["7348624600"]
             if (isset($response['success']) && $response['success'] == true && !empty($response['data'])) {
-                // Zyla returns a flat list of available numbers. We select the first one.
                 $phoneNumberValue = $response['data'][0];
+
+                // Prepend country code if the number does not already start with it
+                $fullPhoneNumber = $phoneNumberValue;
+                if (!str_starts_with($phoneNumberValue, $country->code)) {
+                    $fullPhoneNumber = $country->code . $phoneNumberValue;
+                }
 
                 $number = PhoneNumber::create([
                     'user_id' => Auth::id(),
                     'country_id' => $country->id,
-                    'number' => $phoneNumberValue,
+                    'number' => $fullPhoneNumber,
                     'service' => $validated['service'],
-                    'provider_order_id' => $response['data']['order_id'] ?? null, // Zyla may not have order_id in this endpoint
+                    'provider_order_id' => $response['data']['order_id'] ?? null,
                     'status' => 'active',
                 ]);
 
@@ -90,11 +95,10 @@ class UserDashboardController extends Controller
                 }
                 
                 return back()->with('success', 'Number generated successfully!')
-                             ->with('generated_number', $phoneNumberValue)
+                             ->with('generated_number', $fullPhoneNumber)
                              ->with('number_id', $number->id);
             } else {
                 // Out of stock or failed API response.
-                // Mark country as out of stock so it is temporarily hidden from frontend dropdown
                 $country->update(['status' => false]);
 
                 $errorMessage = 'Selected country is currently out of stock. Please select another country.';
@@ -120,47 +124,10 @@ class UserDashboardController extends Controller
 
     public function pollActiveSms(ProviderInterface $apiService)
     {
-        $numbers = PhoneNumber::with('country')->where('user_id', Auth::id())->where('status', 'active')->get();
-        $results = [];
-
-        foreach ($numbers as $number) {
-            try {
-                $response = $apiService->checkSmsHistory($number->country->code ?? 'US', $number->number);
-                
-                if (isset($response['success']) && $response['success'] == true && !empty($response['data'])) {
-                    // Extract latest SMS
-                    $latestSms = $response['data'][0]; // This is an array with ['from', 'text', 'myNumber', 'createdAt']
-                    
-                    // Parse out a potential OTP (4 to 8 digits)
-                    $otp = null;
-                    if (preg_match('/\b\d{4,8}\b/', $latestSms['text'], $matches)) {
-                        $otp = $matches[0];
-                    }
-                    
-                    $results[$number->id] = [
-                        'has_sms' => true,
-                        'text' => $latestSms['text'],
-                        'otp' => $otp,
-                        'from' => $latestSms['from'],
-                        'time' => $latestSms['createdAt'] ?? 'just now'
-                    ];
-                } else {
-                    $results[$number->id] = [
-                        'has_sms' => false,
-                        'message' => 'Waiting for SMS...'
-                    ];
-                }
-            } catch (\Exception $e) {
-                $results[$number->id] = [
-                    'has_sms' => false,
-                    'message' => 'Connection error'
-                ];
-            }
-        }
-
+        // Keep this method if needed in the future, return empty response for now to save quota
         return response()->json([
             'success' => true,
-            'sms_data' => $results
+            'sms_data' => []
         ]);
     }
 
@@ -171,26 +138,35 @@ class UserDashboardController extends Controller
         try {
             $response = $apiService->checkSmsHistory($number->country->code ?? 'US', $number->number);
             
-            if (isset($response['success']) && $response['success'] == true) {
+            // RapidAPI checkSmsHistory returns: [ 'success' => true, 'data' => [ [ 'text' => '...', 'from' => '...', 'createdAt' => '...' ] ] ]
+            if (isset($response['success']) && $response['success'] == true && !empty($response['data'])) {
+                $latestSms = $response['data'][0]; // Select the latest message from the array
+                
+                // Attempt to parse out a 4-to-8 digit OTP from the SMS text
+                $otp = null;
+                if (preg_match('/\b\d{4,8}\b/', $latestSms['text'], $matches)) {
+                    $otp = $matches[0];
+                }
+                
                 return response()->json([
                     'success' => true,
-                    'sms' => $response['data']['sms'] ?? 'No SMS content yet'
-                ]);
-            } elseif (isset($response['sms'])) {
-                 return response()->json([
-                    'success' => true,
-                    'sms' => $response['sms']
+                    'has_sms' => true,
+                    'sms' => $latestSms['text'],
+                    'otp' => $otp,
+                    'from' => $latestSms['from'],
+                    'time' => $latestSms['createdAt'] ?? 'just now'
                 ]);
             } else {
                 return response()->json([
-                    'success' => false,
-                    'message' => $response['message'] ?? (is_array($response) ? json_encode($response) : 'Please wait and try again.')
+                    'success' => true,
+                    'has_sms' => false,
+                    'message' => 'No SMS received yet. Click Fetch OTP again after requesting the code.'
                 ]);
             }
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => $e->getMessage()
+                'message' => 'Connection Error: ' . $e->getMessage()
             ]);
         }
     }

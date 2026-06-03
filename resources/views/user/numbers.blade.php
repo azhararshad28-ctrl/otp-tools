@@ -5,25 +5,6 @@
 
 @section('content')
     <style>
-        .sms-status-waiting {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .pulse-dot {
-            width: 8px;
-            height: 8px;
-            background: var(--warning);
-            border-radius: 50%;
-            box-shadow: 0 0 8px var(--warning);
-            animation: blink-animation 1.5s infinite ease-in-out;
-            display: inline-block;
-        }
-        .status-text {
-            color: var(--warning);
-            font-size: 0.9rem;
-            font-weight: 500;
-        }
         .otp-badge-premium {
             background: rgba(16, 185, 129, 0.12);
             border: 1px solid rgba(16, 185, 129, 0.25);
@@ -68,10 +49,26 @@
             color: var(--text-secondary);
             margin-top: 3px;
         }
-        @keyframes blink-animation {
-            0% { opacity: 0.4; transform: scale(0.95); }
-            50% { opacity: 1; transform: scale(1.1); }
-            100% { opacity: 0.4; transform: scale(0.95); }
+        .fetch-btn {
+            background: rgba(59, 130, 246, 0.1) !important;
+            border: 1px solid rgba(59, 130, 246, 0.2) !important;
+            color: var(--accent) !important;
+            padding: 0.45rem 1rem !important;
+            font-size: 0.85rem !important;
+            border-radius: 6px !important;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s ease;
+        }
+        .fetch-btn:hover {
+            background: rgba(59, 130, 246, 0.2) !important;
+            border-color: rgba(59, 130, 246, 0.4) !important;
+        }
+        .fetch-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
         }
     </style>
 
@@ -115,7 +112,7 @@
                             </td>
                             <td>
                                 @if($num->status === 'active')
-                                    <span class="badge" style="background: rgba(16, 185, 129, 0.1); color: var(--success);"><i class="fa-solid fa-circle-notch fa-spin" style="margin-right: 5px;"></i> Active</span>
+                                    <span class="badge" style="background: rgba(16, 185, 129, 0.1); color: var(--success);"><i class="fa-solid fa-check"></i> Active</span>
                                 @else
                                     <span class="badge" style="background: rgba(239, 68, 68, 0.1); color: var(--danger);">Closed</span>
                                 @endif
@@ -123,16 +120,16 @@
                             <td style="color: var(--text-secondary); font-size: 0.9rem;">
                                 {{ $num->created_at->diffForHumans() }}
                             </td>
-                            <td style="min-width: 320px;">
-                                <div class="sms-poll-container" data-number-id="{{ $num->id }}">
+                            <td style="min-width: 320px; vertical-align: top;">
+                                <div class="sms-container" style="display: flex; flex-direction: column; gap: 8px; align-items: flex-start;">
                                     @if($num->status === 'active')
-                                        <div class="sms-status-waiting">
-                                            <span class="pulse-dot"></span>
-                                            <span class="status-text">Waiting for SMS...</span>
-                                        </div>
+                                        <button class="btn fetch-btn" onclick="fetchOtpManual('{{ $num->id }}', this)">
+                                            <i class="fa-solid fa-satellite-dish"></i> Fetch OTP
+                                        </button>
                                     @else
-                                        <span style="color: var(--text-secondary); font-size: 0.9rem;">Polling Stopped</span>
+                                        <span style="color: var(--text-secondary); font-size: 0.9rem;">SMS Checked (Closed)</span>
                                     @endif
+                                    <div class="sms-result-display" data-number-id="{{ $num->id }}"></div>
                                 </div>
                             </td>
                         </tr>
@@ -146,64 +143,73 @@
 
 @section('scripts')
 <script>
-    document.addEventListener('DOMContentLoaded', () => {
-        const pollContainers = document.querySelectorAll('.sms-poll-container');
-        const activeIds = Array.from(pollContainers)
-            .filter(c => c.querySelector('.sms-status-waiting') !== null)
-            .map(c => c.getAttribute('data-number-id'));
+    function fetchOtpManual(id, button) {
+        const display = document.querySelector(`.sms-result-display[data-number-id="${id}"]`);
+        if (!display) return;
 
-        if (activeIds.length === 0) return;
+        // Disable button and show loading state to prevent double clicking and wasting API quota
+        button.disabled = true;
+        const originalHTML = button.innerHTML;
+        button.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Fetching...';
+        display.innerHTML = '<span style="color:var(--text-secondary); font-size:0.85rem;"><i class="fa-solid fa-spinner fa-spin"></i> Connecting to SMS Gateway... (Consuming 1 API call)</span>';
 
-        function pollSms() {
-            fetch("{{ route('sms.poll') }}")
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) {
-                        Object.entries(data.sms_data).forEach(([id, smsInfo]) => {
-                            const container = document.querySelector(`.sms-poll-container[data-number-id="${id}"]`);
-                            if (!container) return;
+        fetch(`/app/sms/${id}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    if (data.has_sms) {
+                        // Successfully received SMS!
+                        // Hide button completely to save further API calls
+                        button.style.display = 'none';
+                        
+                        let otpBadge = '';
+                        if (data.otp) {
+                            otpBadge = `
+                                <div class="otp-badge-premium" onclick="copyTextValue('${data.otp}', this)" title="Click to copy OTP">
+                                    <span class="otp-number">${data.otp}</span>
+                                    <i class="fa-solid fa-copy copy-badge-icon"></i>
+                                </div>
+                            `;
+                        }
 
-                            if (smsInfo.has_sms) {
-                                let otpBadge = '';
-                                if (smsInfo.otp) {
-                                    otpBadge = `
-                                        <div class="otp-badge-premium" onclick="copyTextValue('${smsInfo.otp}', this)" title="Click to copy OTP">
-                                            <span class="otp-number">${smsInfo.otp}</span>
-                                            <i class="fa-solid fa-copy copy-badge-icon"></i>
-                                        </div>
-                                    `;
-                                }
-
-                                container.innerHTML = `
-                                    <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 5px;">
-                                        ${otpBadge}
-                                        <div class="sms-text-bubble">
-                                            ${smsInfo.text}
-                                        </div>
-                                        <div class="sms-meta-info">
-                                            Sender: ${smsInfo.from} • ${smsInfo.time}
-                                        </div>
-                                    </div>
-                                `;
-                            } else {
-                                container.innerHTML = `
-                                    <div class="sms-status-waiting">
-                                        <span class="pulse-dot"></span>
-                                        <span class="status-text">Waiting for SMS...</span>
-                                    </div>
-                                `;
-                            }
-                        });
+                        display.innerHTML = `
+                            <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 5px; margin-top: 5px;">
+                                ${otpBadge}
+                                <div class="sms-text-bubble">
+                                    ${data.sms}
+                                </div>
+                                <div class="sms-meta-info">
+                                    Sender: ${data.from} • ${data.time}
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        // No SMS yet
+                        display.innerHTML = `<span style="color:var(--warning); font-size:0.85rem;"><i class="fa-solid fa-triangle-exclamation"></i> ${data.message}</span>`;
+                        
+                        // Re-enable button after 5 seconds to let them retry
+                        setTimeout(() => {
+                            button.disabled = false;
+                            button.innerHTML = originalHTML;
+                        }, 4000);
                     }
-                })
-                .catch(err => console.error("Error polling SMS: ", err));
-        }
-
-        // Initial run
-        pollSms();
-        // Poll every 5 seconds
-        setInterval(pollSms, 5000);
-    });
+                } else {
+                    // API connection failure or error
+                    display.innerHTML = `<span style="color:var(--danger); font-size:0.85rem;"><i class="fa-solid fa-circle-xmark"></i> ${data.message}</span>`;
+                    setTimeout(() => {
+                        button.disabled = false;
+                        button.innerHTML = originalHTML;
+                    }, 4000);
+                }
+            })
+            .catch(err => {
+                display.innerHTML = '<span style="color:var(--danger); font-size:0.85rem;"><i class="fa-solid fa-circle-xmark"></i> Connection Error. Please retry.</span>';
+                setTimeout(() => {
+                    button.disabled = false;
+                    button.innerHTML = originalHTML;
+                }, 4000);
+            });
+    }
 
     function copyTextValue(text, element) {
         navigator.clipboard.writeText(text).then(() => {
