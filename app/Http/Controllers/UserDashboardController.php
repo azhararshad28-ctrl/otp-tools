@@ -99,7 +99,11 @@ class UserDashboardController extends Controller
                              ->with('number_id', $number->id);
             } else {
                 // Out of stock or failed API response.
-                $country->update(['status' => false]);
+                // Do NOT disable the country if it was a rate limit / quota exceeded error (429)
+                $isRateLimit = isset($response['message']) && str_contains($response['message'], '429');
+                if (!$isRateLimit) {
+                    $country->update(['status' => false]);
+                }
 
                 $errorMessage = 'Selected country is currently out of stock. Please select another country.';
                 if (isset($response['message']) && !empty($response['message'])) {
