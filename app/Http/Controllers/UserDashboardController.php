@@ -114,76 +114,147 @@ class UserDashboardController extends Controller
     public function generate(Request $request, ProviderInterface $apiService)
     {
         $validated = $request->validate([
-            'country_id' => 'required|exists:countries,id',
+            'country_id' => 'required|string',
             'service' => 'required|string',
         ]);
 
-        $country = Country::find($validated['country_id']);
-        
-        try {
-            $response = $apiService->getNumberByCountry($country->code);
-            
-            if (isset($response['success']) && $response['success'] == true && !empty($response['data'])) {
-                $numbersList = $response['data'];
-                $rotationService = new NumberRotationService();
-                
-                // Select the best fresh or high-reputation number from the list
-                $selectedNumber = $rotationService->selectBestNumber($numbersList, $country->id, $validated['service']);
+        if ($validated['country_id'] !== 'any') {
+            $request->validate([
+                'country_id' => 'exists:countries,id'
+            ]);
 
-                if ($selectedNumber === null) {
-                    NumberRotationService::logEvent('GENERATION_BLOCKED', "All numbers in {$country->name} are blocked or used for " . ucfirst($validated['service']));
-                    return back()->with('error', 'All available numbers for ' . $country->name . ' have already been used/verified for ' . ucfirst($validated['service']) . '. Please try another country.');
+            $country = Country::find($validated['country_id']);
+            
+            try {
+                $response = $apiService->getNumberByCountry($country->code);
+                
+                if (isset($response['success']) && $response['success'] == true && !empty($response['data'])) {
+                    $numbersList = $response['data'];
+                    $rotationService = new NumberRotationService();
+                    
+                    // Select the best fresh or high-reputation number from the list
+                    $selectedNumber = $rotationService->selectBestNumber($numbersList, $country->id, $validated['service']);
+
+                    if ($selectedNumber === null) {
+                        NumberRotationService::logEvent('GENERATION_BLOCKED', "All numbers in {$country->name} are blocked or used for " . ucfirst($validated['service']));
+                        return back()->with('error', 'All available numbers for ' . $country->name . ' have already been used/verified for ' . ucfirst($validated['service']) . '. Please try another country.');
+                    }
+
+                    // Prepend country code if needed
+                    $fullPhoneNumber = $selectedNumber;
+                    if (!str_starts_with($selectedNumber, $country->code)) {
+                        $fullPhoneNumber = $country->code . $selectedNumber;
+                    }
+
+                    $number = PhoneNumber::create([
+                        'user_id' => Auth::id(),
+                        'country_id' => $country->id,
+                        'number' => $fullPhoneNumber,
+                        'service' => $validated['service'],
+                        'provider_order_id' => $response['data']['order_id'] ?? null,
+                        'status' => 'active',
+                        'last_used_at' => now(),
+                    ]);
+
+                    // Ensure the country is marked as active in stock
+                    if (!$country->status) {
+                        $country->update(['status' => true]);
+                        \Illuminate\Support\Facades\Cache::forget('countries_active_list_v1');
+                        \Illuminate\Support\Facades\Cache::forget('countries_active_api_v1');
+                    }
+
+                    NumberRotationService::logEvent('NUMBER_ACQUIRED', "Acquired number +{$fullPhoneNumber} for " . ucfirst($validated['service']) . " ({$country->name})");
+                    
+                    return back()->with('success', 'Number generated and pre-scanned successfully!')
+                                 ->with('generated_number', $fullPhoneNumber)
+                                 ->with('generated_country_name', $country->name)
+                                 ->with('number_id', $number->id);
+                } else {
+                    // Out of stock or failed API response.
+                    $isRateLimit = isset($response['message']) && str_contains($response['message'], '429');
+                    if (!$isRateLimit) {
+                        $country->update(['status' => false]);
+                        \Illuminate\Support\Facades\Cache::forget('countries_active_list_v1');
+                        \Illuminate\Support\Facades\Cache::forget('countries_active_api_v1');
+                    }
+
+                    $errorMessage = 'Selected country is currently out of stock. Please select another country.';
+                    if (isset($response['message']) && !empty($response['message'])) {
+                        $errorMessage = $response['message'];
+                    }
+
+                    NumberRotationService::logEvent('GENERATION_OUT_OF_STOCK', "Generation failed for {$country->name} ({$validated['service']}): {$errorMessage}");
+
+                    return back()->with('error', $errorMessage);
                 }
+            } catch (\Exception $e) {
+                NumberRotationService::logEvent('GENERATION_ERROR', "Exception: " . $e->getMessage());
+                return back()->with('error', 'Connection Error: ' . $e->getMessage());
+            }
+        } else {
+            // Mix Mode - Get best number from any active country
+            try {
+                $countries = Country::where('status', true)->get();
+                $candidates = [];
+
+                foreach ($countries as $c) {
+                    $response = $apiService->getNumberByCountry($c->code);
+                    if (isset($response['success']) && $response['success'] == true && !empty($response['data'])) {
+                        foreach ($response['data'] as $num) {
+                            $candidates[] = [
+                                'number' => $num,
+                                'country_id' => $c->id,
+                                'country_code' => $c->code,
+                                'country_name' => $c->name
+                            ];
+                        }
+                    }
+                }
+
+                if (empty($candidates)) {
+                    NumberRotationService::logEvent('GENERATION_OUT_OF_STOCK', "Generation failed in Mix Mode: No numbers in stock across all countries.");
+                    return back()->with('error', 'All countries are currently out of stock. Please try again later.');
+                }
+
+                $rotationService = new NumberRotationService();
+                $bestCandidate = $rotationService->selectBestMixedNumber($candidates, $validated['service']);
+
+                if ($bestCandidate === null) {
+                    NumberRotationService::logEvent('GENERATION_BLOCKED', "All available numbers across all countries are blocked or used for " . ucfirst($validated['service']));
+                    return back()->with('error', 'All numbers across all countries have already been used/verified for ' . ucfirst($validated['service']) . '.');
+                }
+
+                $selectedNumber = $bestCandidate['number'];
+                $countryId = $bestCandidate['country_id'];
+                $countryCode = $bestCandidate['country_code'];
+                $countryName = $bestCandidate['country_name'];
 
                 // Prepend country code if needed
                 $fullPhoneNumber = $selectedNumber;
-                if (!str_starts_with($selectedNumber, $country->code)) {
-                    $fullPhoneNumber = $country->code . $selectedNumber;
+                if (!str_starts_with($selectedNumber, $countryCode)) {
+                    $fullPhoneNumber = $countryCode . $selectedNumber;
                 }
 
                 $number = PhoneNumber::create([
                     'user_id' => Auth::id(),
-                    'country_id' => $country->id,
+                    'country_id' => $countryId,
                     'number' => $fullPhoneNumber,
                     'service' => $validated['service'],
-                    'provider_order_id' => $response['data']['order_id'] ?? null,
                     'status' => 'active',
                     'last_used_at' => now(),
                 ]);
 
-                // Ensure the country is marked as active in stock
-                if (!$country->status) {
-                    $country->update(['status' => true]);
-                    \Illuminate\Support\Facades\Cache::forget('countries_active_list_v1');
-                    \Illuminate\Support\Facades\Cache::forget('countries_active_api_v1');
-                }
-
-                NumberRotationService::logEvent('NUMBER_ACQUIRED', "Acquired number +{$fullPhoneNumber} for " . ucfirst($validated['service']));
+                NumberRotationService::logEvent('NUMBER_ACQUIRED', "Acquired number +{$fullPhoneNumber} for " . ucfirst($validated['service']) . " (Mix Mode - Selected: {$countryName})");
                 
                 return back()->with('success', 'Number generated and pre-scanned successfully!')
                              ->with('generated_number', $fullPhoneNumber)
+                             ->with('generated_country_name', $countryName)
                              ->with('number_id', $number->id);
-            } else {
-                // Out of stock or failed API response.
-                $isRateLimit = isset($response['message']) && str_contains($response['message'], '429');
-                if (!$isRateLimit) {
-                    $country->update(['status' => false]);
-                    \Illuminate\Support\Facades\Cache::forget('countries_active_list_v1');
-                    \Illuminate\Support\Facades\Cache::forget('countries_active_api_v1');
-                }
 
-                $errorMessage = 'Selected country is currently out of stock. Please select another country.';
-                if (isset($response['message']) && !empty($response['message'])) {
-                    $errorMessage = $response['message'];
-                }
-
-                NumberRotationService::logEvent('GENERATION_OUT_OF_STOCK', "Generation failed for {$country->name} ({$validated['service']}): {$errorMessage}");
-
-                return back()->with('error', $errorMessage);
+            } catch (\Exception $e) {
+                NumberRotationService::logEvent('GENERATION_ERROR', "Mix Mode Exception: " . $e->getMessage());
+                return back()->with('error', 'Connection Error: ' . $e->getMessage());
             }
-        } catch (\Exception $e) {
-            NumberRotationService::logEvent('GENERATION_ERROR', "Exception: " . $e->getMessage());
-            return back()->with('error', 'Connection Error: ' . $e->getMessage());
         }
     }
 

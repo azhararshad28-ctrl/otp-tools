@@ -15,6 +15,7 @@
                 </label>
                 <select name="country_id" id="country_id" class="form-control" required>
                     <option value="">-- Choose Country --</option>
+                    <option value="any">Auto-Select / Mix Mode (Best Available)</option>
                     @foreach($countries as $country)
                         <option value="{{ $country->id }}">{{ $country->name }} (+{{ $country->code }})</option>
                     @endforeach
@@ -67,6 +68,11 @@
                 </div>
 
                 <h2 class="panel-title" style="font-size: 1.75rem; margin-bottom: 0.5rem; font-weight: 700;">Number Acquired!</h2>
+                @if(session('generated_country_name'))
+                    <p style="color: var(--accent); font-weight: 600; margin-bottom: 0.5rem; font-size: 1.1rem;">
+                        <i class="fa-solid fa-flag"></i> Country: {{ session('generated_country_name') }}
+                    </p>
+                @endif
                 <p style="color: var(--text-secondary); margin-bottom: 2rem; font-size: 0.95rem;">Your virtual number is ready to receive SMS logs.</p>
 
                 <div class="number-box" style="background: rgba(15, 23, 42, 0.65); border: 1px solid var(--border-color); padding: 1.25rem; border-radius: 12px; font-size: 1.75rem; font-weight: 700; color: var(--success); letter-spacing: 0.05em; display: flex; align-items: center; justify-content: center; gap: 15px; margin-bottom: 2rem; box-shadow: inset 0 0 10px rgba(0,0,0,0.5);">
@@ -102,6 +108,14 @@
                         
                         // Clear option elements and replace with updated active ones
                         select.innerHTML = '<option value="">-- Choose Country --</option>';
+                        
+                        const anyOption = document.createElement('option');
+                        anyOption.value = 'any';
+                        anyOption.textContent = 'Auto-Select / Mix Mode (Best Available)';
+                        if (currentValue === 'any') {
+                            anyOption.selected = true;
+                        }
+                        select.appendChild(anyOption);
                         
                         data.countries.forEach(country => {
                             const option = document.createElement('option');

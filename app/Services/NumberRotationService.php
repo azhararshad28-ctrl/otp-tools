@@ -169,6 +169,89 @@ class NumberRotationService
     }
 
     /**
+     * Sort and filter a mixed list of API numbers with country contexts based on database metrics.
+     *
+     * Each candidate element must be: ['number' => $number, 'country_id' => $countryId, 'country_code' => $countryCode, 'country_name' => $countryName]
+     */
+    public function selectBestMixedNumber(array $candidates, string $serviceName): ?array
+    {
+        if (empty($candidates)) return null;
+
+        $cooldownHours = (int)(Setting::where('key', 'cooldown_hours')->value('value') ?? 24);
+        $busyLockMinutes = (int)(Setting::where('key', 'busy_lock_minutes')->value('value') ?? 15);
+
+        $scoredNumbers = [];
+
+        foreach ($candidates as $cand) {
+            $numValue = $cand['number'];
+
+            // 1. Check busy lock
+            $isBusy = PhoneNumber::where('number', 'like', "%{$numValue}")
+                ->where('status', 'active')
+                ->where('created_at', '>=', now()->subMinutes($busyLockMinutes))
+                ->exists();
+
+            if ($isBusy) {
+                self::logEvent('NUMBER_FILTERED', "Number +{$numValue} filtered out: Currently active (busy lock).");
+                continue;
+            }
+
+            // 2. Check cooldown for this service
+            $underCooldown = PhoneNumber::where('number', 'like', "%{$numValue}")
+                ->where('service', $serviceName)
+                ->where(function($query) {
+                    $query->where('status', 'discarded')
+                          ->orWhere('status', 'closed');
+                })
+                ->where('updated_at', '>=', now()->subHours($cooldownHours))
+                ->exists();
+
+            if ($underCooldown) {
+                self::logEvent('NUMBER_FILTERED', "Number +{$numValue} filtered out: In cooldown period ({$cooldownHours}h) for " . ucfirst($serviceName));
+                continue;
+            }
+
+            // 3. Check reputation
+            $dbNumber = PhoneNumber::where('number', 'like', "%{$numValue}")
+                ->where('service', $serviceName)
+                ->orderBy('id', 'desc')
+                ->first();
+
+            if ($dbNumber) {
+                if ($dbNumber->reputation_score < 40) {
+                    self::logEvent('NUMBER_FILTERED', "Number +{$numValue} filtered out: Low reputation score ({$dbNumber->reputation_score}) for " . ucfirst($serviceName));
+                    continue;
+                }
+
+                $scoredNumbers[] = [
+                    'candidate' => $cand,
+                    'reputation' => $dbNumber->reputation_score,
+                    'last_used' => $dbNumber->last_used_at ? strtotime($dbNumber->last_used_at) : 0
+                ];
+            } else {
+                $scoredNumbers[] = [
+                    'candidate' => $cand,
+                    'reputation' => 100,
+                    'last_used' => 0
+                ];
+            }
+        }
+
+        if (empty($scoredNumbers)) return null;
+
+        // Sort: 1. Reputation DESC
+        //       2. Last Used ASC
+        usort($scoredNumbers, function ($a, $b) {
+            if ($a['reputation'] !== $b['reputation']) {
+                return $b['reputation'] <=> $a['reputation'];
+            }
+            return $a['last_used'] <=> $b['last_used'];
+        });
+
+        return $scoredNumbers[0]['candidate'];
+    }
+
+    /**
      * Helper to compute reputation rating from success/failure stats.
      */
     protected function calculateReputation($number): int
