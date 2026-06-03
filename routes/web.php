@@ -23,5 +23,6 @@ Route::middleware('auth')->group(function () {
     Route::get('/app/generate', [UserDashboardController::class, 'showGenerate'])->name('generate.page');
     Route::get('/app/numbers', [UserDashboardController::class, 'showNumbers'])->name('numbers.page');
     Route::post('/app/generate', [UserDashboardController::class, 'generate'])->name('generate.number');
+    Route::get('/app/countries/active', [UserDashboardController::class, 'getActiveCountries'])->name('countries.active');
     Route::get('/app/sms/{id}', [UserDashboardController::class, 'checkSms'])->name('check.sms');
 });

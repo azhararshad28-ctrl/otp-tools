@@ -37,10 +37,10 @@ class ZylaApiService implements ProviderInterface
             }
 
             Log::error('Zyla API getCountries failed', ['status' => $response->status(), 'response' => $response->body()]);
-            return [];
+            return ['success' => false, 'message' => 'API Error ' . $response->status() . ': ' . $response->body()];
         } catch (\Exception $e) {
             Log::error('Zyla API getCountries exception', ['message' => $e->getMessage()]);
-            return [];
+            return ['success' => false, 'message' => 'Connection Error: ' . $e->getMessage()];
         }
     }
 
@@ -57,10 +57,10 @@ class ZylaApiService implements ProviderInterface
             }
 
             Log::error('Zyla API getNumberByCountry failed', ['status' => $response->status(), 'response' => $response->body()]);
-            return [];
+            return ['success' => false, 'message' => 'API Error ' . $response->status() . ': ' . $response->body()];
         } catch (\Exception $e) {
             Log::error('Zyla API getNumberByCountry exception', ['message' => $e->getMessage()]);
-            return [];
+            return ['success' => false, 'message' => 'Connection Error: ' . $e->getMessage()];
         }
     }
 
@@ -78,10 +78,10 @@ class ZylaApiService implements ProviderInterface
             }
 
             Log::error('Zyla API checkSmsHistory failed', ['status' => $response->status(), 'response' => $response->body()]);
-            return [];
+            return ['success' => false, 'message' => 'API Error ' . $response->status() . ': ' . $response->body()];
         } catch (\Exception $e) {
             Log::error('Zyla API checkSmsHistory exception', ['message' => $e->getMessage()]);
-            return [];
+            return ['success' => false, 'message' => 'Connection Error: ' . $e->getMessage()];
         }
     }
 }

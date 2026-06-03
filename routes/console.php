@@ -22,3 +22,7 @@ Schedule::call(function () {
         CheckSmsJob::dispatch($number->id);
     }
 })->everyMinute();
+
+// Scan Zyla API country stock every 10 minutes
+Schedule::command('app:scan-countries-stock')->everyTenMinutes();
+

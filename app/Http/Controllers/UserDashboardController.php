@@ -70,36 +70,52 @@ class UserDashboardController extends Controller
         try {
             $response = $apiService->getNumberByCountry($country->code);
             
-            if (isset($response['success']) && $response['success'] == true) {
-                PhoneNumber::create([
+            // The Zyla API returns: {"status": 200, "success": true, "message": "", "data": ["number1", "number2"]}
+            if (isset($response['success']) && $response['success'] == true && !empty($response['data'])) {
+                // Zyla returns a flat list of available numbers. We select the first one.
+                $phoneNumberValue = $response['data'][0];
+
+                $number = PhoneNumber::create([
                     'user_id' => Auth::id(),
                     'country_id' => $country->id,
-                    'number' => $response['data']['phone_number'] ?? 'N/A',
+                    'number' => $phoneNumberValue,
                     'service' => $validated['service'],
-                    'provider_order_id' => $response['data']['order_id'] ?? null,
+                    'provider_order_id' => $response['data']['order_id'] ?? null, // Zyla may not have order_id in this endpoint
                     'status' => 'active',
                 ]);
-                
-                return back()->with('success', 'Number generated successfully!');
-            } else {
-                // Sometimes APIs just return data without 'success' key. Let's check for phone_number.
-                if (isset($response['phone_number'])) {
-                    PhoneNumber::create([
-                        'user_id' => Auth::id(),
-                        'country_id' => $country->id,
-                        'number' => $response['phone_number'],
-                        'service' => $validated['service'],
-                        'provider_order_id' => $response['order_id'] ?? null,
-                        'status' => 'active',
-                    ]);
-                    return back()->with('success', 'Number generated successfully!');
+
+                // Ensure the country is marked as active in stock
+                if (!$country->status) {
+                    $country->update(['status' => true]);
                 }
                 
-                return back()->with('error', $response['message'] ?? (is_array($response) ? json_encode($response) : 'Unknown API error'));
+                return back()->with('success', 'Number generated successfully!')
+                             ->with('generated_number', $phoneNumberValue)
+                             ->with('number_id', $number->id);
+            } else {
+                // Out of stock or failed API response.
+                // Mark country as out of stock so it is temporarily hidden from frontend dropdown
+                $country->update(['status' => false]);
+
+                $errorMessage = 'Selected country is currently out of stock. Please select another country.';
+                if (isset($response['message']) && !empty($response['message'])) {
+                    $errorMessage = $response['message'];
+                }
+
+                return back()->with('error', $errorMessage);
             }
         } catch (\Exception $e) {
-            return back()->with('error', $e->getMessage());
+            return back()->with('error', 'Connection Error: ' . $e->getMessage());
         }
+    }
+
+    public function getActiveCountries()
+    {
+        $countries = Country::where('status', true)->get(['id', 'name', 'code']);
+        return response()->json([
+            'success' => true,
+            'countries' => $countries
+        ]);
     }
 
     public function checkSms($id, ProviderInterface $apiService)
