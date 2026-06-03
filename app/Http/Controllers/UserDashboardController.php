@@ -72,18 +72,70 @@ class UserDashboardController extends Controller
             
             // The RapidAPI returns a flat array of numbers: ["7348624600"]
             if (isset($response['success']) && $response['success'] == true && !empty($response['data'])) {
-                $phoneNumberValue = $response['data'][0];
+                $numbersList = $response['data'];
+                $selectedNumber = null;
+                $serviceName = strtolower($validated['service']);
 
-                // Prepend country code if the number does not already start with it
-                $fullPhoneNumber = $phoneNumberValue;
-                if (!str_starts_with($phoneNumberValue, $country->code)) {
-                    $fullPhoneNumber = $country->code . $phoneNumberValue;
+                foreach ($numbersList as $phoneNumberValue) {
+                    // Prepend country code if the number does not already start with it
+                    $fullPhoneNumber = $phoneNumberValue;
+                    if (!str_starts_with($phoneNumberValue, $country->code)) {
+                        $fullPhoneNumber = $country->code . $phoneNumberValue;
+                    }
+
+                    // Pre-scan SMS history for the selected service
+                    $isUsedExceeded = false;
+                    $historyResponse = $apiService->checkSmsHistory($country->code, $fullPhoneNumber);
+                    
+                    if (isset($historyResponse['success']) && $historyResponse['success'] == true && !empty($historyResponse['data'])) {
+                        $msgCount = 0;
+                        
+                        // Define keywords for the selected service to filter SMS history
+                        $keywords = [$serviceName];
+                        if ($serviceName === 'facebook' || $serviceName === 'instagram') {
+                            $keywords = ['facebook', 'instagram', 'meta', 'fb', 'ig'];
+                        } elseif ($serviceName === 'google') {
+                            $keywords = ['google', 'gmail', 'g-'];
+                        } elseif ($serviceName === 'whatsapp') {
+                            $keywords = ['whatsapp', 'wa'];
+                        } elseif ($serviceName === 'telegram') {
+                            $keywords = ['telegram', 'tg'];
+                        } elseif ($serviceName === 'twitter') {
+                            $keywords = ['twitter', 'x.com', 'x '];
+                        }
+
+                        foreach ($historyResponse['data'] as $msg) {
+                            $text = strtolower($msg['text'] ?? '');
+                            $from = strtolower($msg['from'] ?? '');
+                            
+                            foreach ($keywords as $kw) {
+                                if (str_contains($text, $kw) || str_contains($from, $kw)) {
+                                    $msgCount++;
+                                    break; // Count once per message
+                                }
+                            }
+                        }
+
+                        // Reject if used more than 2 times (3 or more) for the selected platform
+                        if ($msgCount >= 3) {
+                            $isUsedExceeded = true;
+                        }
+                    }
+
+                    if (!$isUsedExceeded) {
+                        $selectedNumber = $fullPhoneNumber;
+                        break; // Found a good, fresh number!
+                    }
+                }
+
+                if ($selectedNumber === null) {
+                    return back()->with('error', 'All available numbers for ' . $country->name . ' have already been used/verified for ' . ucfirst($validated['service']) . '. Please try another country.');
                 }
 
                 $number = PhoneNumber::create([
                     'user_id' => Auth::id(),
                     'country_id' => $country->id,
-                    'number' => $fullPhoneNumber,
+                    'number' => $selectedNumber,
                     'service' => $validated['service'],
                     'provider_order_id' => $response['data']['order_id'] ?? null,
                     'status' => 'active',
@@ -94,8 +146,8 @@ class UserDashboardController extends Controller
                     $country->update(['status' => true]);
                 }
                 
-                return back()->with('success', 'Number generated successfully!')
-                             ->with('generated_number', $fullPhoneNumber)
+                return back()->with('success', 'Number generated and pre-scanned successfully!')
+                             ->with('generated_number', $selectedNumber)
                              ->with('number_id', $number->id);
             } else {
                 // Out of stock or failed API response.
