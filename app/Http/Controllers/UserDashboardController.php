@@ -70,7 +70,7 @@ class UserDashboardController extends Controller
         try {
             $response = $apiService->getNumberByCountry($country->code);
             
-            if ($response['success']) {
+            if (isset($response['success']) && $response['success'] == true) {
                 PhoneNumber::create([
                     'user_id' => Auth::id(),
                     'country_id' => $country->id,
@@ -82,7 +82,20 @@ class UserDashboardController extends Controller
                 
                 return back()->with('success', 'Number generated successfully!');
             } else {
-                return back()->with('error', $response['message'] ?? 'Unknown API error');
+                // Sometimes APIs just return data without 'success' key. Let's check for phone_number.
+                if (isset($response['phone_number'])) {
+                    PhoneNumber::create([
+                        'user_id' => Auth::id(),
+                        'country_id' => $country->id,
+                        'number' => $response['phone_number'],
+                        'service' => $validated['service'],
+                        'provider_order_id' => $response['order_id'] ?? null,
+                        'status' => 'active',
+                    ]);
+                    return back()->with('success', 'Number generated successfully!');
+                }
+                
+                return back()->with('error', $response['message'] ?? (is_array($response) ? json_encode($response) : 'Unknown API error'));
             }
         } catch (\Exception $e) {
             return back()->with('error', $e->getMessage());
@@ -95,15 +108,21 @@ class UserDashboardController extends Controller
         
         try {
             $response = $apiService->checkSmsHistory($number->country->code ?? 'US', $number->number);
-            if ($response['success']) {
+            
+            if (isset($response['success']) && $response['success'] == true) {
                 return response()->json([
                     'success' => true,
                     'sms' => $response['data']['sms'] ?? 'No SMS content yet'
                 ]);
+            } elseif (isset($response['sms'])) {
+                 return response()->json([
+                    'success' => true,
+                    'sms' => $response['sms']
+                ]);
             } else {
                 return response()->json([
                     'success' => false,
-                    'message' => $response['message'] ?? 'Please wait and try again.'
+                    'message' => $response['message'] ?? (is_array($response) ? json_encode($response) : 'Please wait and try again.')
                 ]);
             }
         } catch (\Exception $e) {
