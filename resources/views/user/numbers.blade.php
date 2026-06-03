@@ -122,13 +122,23 @@
                             </td>
                             <td style="min-width: 320px; vertical-align: top;">
                                 <div class="sms-container" style="display: flex; flex-direction: column; gap: 8px; align-items: flex-start;">
-                                    @if($num->status === 'active')
-                                        <button class="btn fetch-btn" onclick="fetchOtpManual('{{ $num->id }}', this)">
-                                            <i class="fa-solid fa-satellite-dish"></i> Fetch OTP
-                                        </button>
-                                    @else
-                                        <span style="color: var(--text-secondary); font-size: 0.9rem;">SMS Checked (Closed)</span>
-                                    @endif
+                                    <div style="display: flex; gap: 8px; align-items: center;">
+                                        @if($num->status === 'active')
+                                            <button class="btn fetch-btn" onclick="fetchOtpManual('{{ $num->id }}', this)">
+                                                <i class="fa-solid fa-satellite-dish"></i> Fetch OTP
+                                            </button>
+                                        @else
+                                            <span style="color: var(--text-secondary); font-size: 0.9rem;">SMS Checked (Closed)</span>
+                                        @endif
+                                        
+                                        <form action="{{ route('numbers.discard', $num->id) }}" method="POST" style="margin: 0; display: inline;" onsubmit="return confirm('Are you sure you want to delete this number? It will be removed from your list.');">
+                                            @csrf
+                                            @method('DELETE')
+                                            <button type="submit" class="btn" style="background: rgba(239, 68, 68, 0.1) !important; border: 1px solid rgba(239, 68, 68, 0.2) !important; color: var(--danger) !important; padding: 0.45rem 1rem !important; font-size: 0.85rem !important; border-radius: 6px !important; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; height: 35px;" title="Delete number">
+                                                <i class="fa-solid fa-trash-can"></i> Delete
+                                            </button>
+                                        </form>
+                                    </div>
                                     <div class="sms-result-display" data-number-id="{{ $num->id }}"></div>
                                 </div>
                             </td>

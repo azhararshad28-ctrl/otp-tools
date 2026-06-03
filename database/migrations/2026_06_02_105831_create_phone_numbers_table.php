@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('country_id')->constrained('countries')->cascadeOnDelete();
             $table->string('number')->unique();
-            $table->string('provider')->default('ZylaLabs');
+            $table->string('provider')->default('RapidAPI');
             $table->string('status')->default('active');
             $table->timestamp('last_checked')->nullable();
             $table->timestamps();

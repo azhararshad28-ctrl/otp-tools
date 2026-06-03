@@ -117,6 +117,17 @@ class UserDashboardController extends Controller
         }
     }
 
+    public function discard($id)
+    {
+        try {
+            $number = PhoneNumber::where('user_id', Auth::id())->findOrFail($id);
+            $number->delete();
+            return back()->with('success', 'Number discarded successfully from inventory.');
+        } catch (\Exception $e) {
+            return back()->with('error', 'Error: ' . $e->getMessage());
+        }
+    }
+
     public function getActiveCountries()
     {
         $countries = Country::where('status', true)->get(['id', 'name', 'code']);

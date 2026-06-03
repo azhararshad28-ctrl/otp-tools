@@ -9,7 +9,7 @@ foreach ($files as $file) {
     }
     if (strpos($file, 'create_phone_numbers_table') !== false) {
         $content = file_get_contents($dir . $file);
-        $content = str_replace('$table->id();', "\$table->id();\n            \$table->foreignId('country_id')->constrained('countries')->cascadeOnDelete();\n            \$table->string('number')->unique();\n            \$table->string('provider')->default('ZylaLabs');\n            \$table->string('status')->default('active');\n            \$table->timestamp('last_checked')->nullable();", $content);
+        $content = str_replace('$table->id();', "\$table->id();\n            \$table->foreignId('country_id')->constrained('countries')->cascadeOnDelete();\n            \$table->string('number')->unique();\n            \$table->string('provider')->default('RapidAPI');\n            \$table->string('status')->default('active');\n            \$table->timestamp('last_checked')->nullable();", $content);
         file_put_contents($dir . $file, $content);
     }
     if (strpos($file, 'create_sms_logs_table') !== false) {

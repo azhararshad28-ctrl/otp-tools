@@ -21,7 +21,7 @@ class ScanCountriesStock extends Command
      *
      * @var string
      */
-    protected $description = 'Scan Zyla API for available country stock and update status';
+    protected $description = 'Scan RapidAPI for available country stock and update status';
 
     /**
      * Execute the console command.
@@ -35,7 +35,7 @@ class ScanCountriesStock extends Command
             try {
                 $response = $provider->getNumberByCountry($country->code);
                 
-                // Zyla API returns {"status": 200, "success": true, "message": "", "data": [...]}
+                // RapidAPI returns {"status": 200, "success": true, "message": "", "data": [...]}
                 // If data is empty or empty array, it means it is out of stock.
                 if (isset($response['success']) && $response['success'] === true && !empty($response['data'])) {
                     $country->status = true;

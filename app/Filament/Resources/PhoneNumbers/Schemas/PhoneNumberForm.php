@@ -19,7 +19,7 @@ class PhoneNumberForm
                     ->required(),
                 TextInput::make('provider')
                     ->required()
-                    ->default('ZylaLabs'),
+                    ->default('RapidAPI'),
                 TextInput::make('status')
                     ->required()
                     ->default('active'),

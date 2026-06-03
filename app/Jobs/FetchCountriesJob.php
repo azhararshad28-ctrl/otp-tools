@@ -29,7 +29,7 @@ class FetchCountriesJob implements ShouldQueue
             }
 
             foreach ($countries as $countryData) {
-                // Adjust based on the actual response structure of ZylaLabs API
+                // Adjust based on the actual response structure of RapidAPI
                 if (isset($countryData['code']) && isset($countryData['name'])) {
                     Country::updateOrCreate(
                         ['code' => $countryData['code']],

@@ -23,6 +23,6 @@ Schedule::call(function () {
     }
 })->everyMinute();
 
-// Scan Zyla API country stock every 10 minutes
+// Scan RapidAPI country stock every 10 minutes
 Schedule::command('app:scan-countries-stock')->everyTenMinutes();
 

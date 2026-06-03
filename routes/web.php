@@ -26,4 +26,5 @@ Route::middleware('auth')->group(function () {
     Route::get('/app/countries/active', [UserDashboardController::class, 'getActiveCountries'])->name('countries.active');
     Route::get('/app/sms/poll', [UserDashboardController::class, 'pollActiveSms'])->name('sms.poll');
     Route::get('/app/sms/{id}', [UserDashboardController::class, 'checkSms'])->name('check.sms');
+    Route::delete('/app/numbers/{id}', [UserDashboardController::class, 'discard'])->name('numbers.discard');
 });

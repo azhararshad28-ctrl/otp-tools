@@ -11,7 +11,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        $this->app->bind(\App\Services\ProviderInterface::class, \App\Services\ZylaApiService::class);
+        $this->app->bind(\App\Services\ProviderInterface::class, \App\Services\RapidApiService::class);
     }
 
     /**

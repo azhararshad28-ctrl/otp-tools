@@ -6,7 +6,7 @@ use App\Models\Setting;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
-class ZylaApiService implements ProviderInterface
+class RapidApiService implements ProviderInterface
 {
     protected string $baseUrl;
     protected string $apiKey;

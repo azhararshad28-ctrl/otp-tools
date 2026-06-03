@@ -48,7 +48,7 @@ class FetchNumberJob implements ShouldQueue
                         ['number' => $response['number']],
                         [
                             'country_id' => $country->id,
-                            'provider' => 'ZylaLabs',
+                            'provider' => 'RapidAPI',
                             'status' => 'active',
                             'last_checked' => now(),
                         ]
