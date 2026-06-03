@@ -68,7 +68,7 @@ class UserDashboardController extends Controller
         $country = Country::find($validated['country_id']);
         
         try {
-            $response = $apiService->generateNumber($country->code, $validated['service']);
+            $response = $apiService->getNumberByCountry($country->code);
             
             if ($response['success']) {
                 PhoneNumber::create([
@@ -91,10 +91,10 @@ class UserDashboardController extends Controller
 
     public function checkSms($id, ProviderInterface $apiService)
     {
-        $number = PhoneNumber::where('user_id', Auth::id())->findOrFail($id);
+        $number = PhoneNumber::with('country')->where('user_id', Auth::id())->findOrFail($id);
         
         try {
-            $response = $apiService->getSms($number->provider_order_id ?? $number->number);
+            $response = $apiService->checkSmsHistory($number->country->code ?? 'US', $number->number);
             if ($response['success']) {
                 return response()->json([
                     'success' => true,
