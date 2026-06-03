@@ -9,18 +9,7 @@
         <form action="{{ route('generate.number') }}" method="POST">
             @csrf
             
-            <div class="form-group">
-                <label class="form-label">
-                    <i class="fa-solid fa-globe" style="color:var(--accent); margin-right:5px;"></i> Target Country
-                </label>
-                <select name="country_id" id="country_id" class="form-control" required>
-                    <option value="">-- Choose Country --</option>
-                    <option value="any">Auto-Select / Mix Mode (Best Available)</option>
-                    @foreach($countries as $country)
-                        <option value="{{ $country->id }}">{{ $country->name }} (+{{ $country->code }})</option>
-                    @endforeach
-                </select>
-            </div>
+
 
             <div class="form-group">
                 <label class="form-label">
@@ -97,39 +86,7 @@
 
 @section('scripts')
     <script>
-        // Update active countries list in the background via AJAX
-        document.addEventListener('DOMContentLoaded', () => {
-            fetch("{{ route('countries.active') }}")
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        const select = document.getElementById('country_id');
-                        const currentValue = select.value;
-                        
-                        // Clear option elements and replace with updated active ones
-                        select.innerHTML = '<option value="">-- Choose Country --</option>';
-                        
-                        const anyOption = document.createElement('option');
-                        anyOption.value = 'any';
-                        anyOption.textContent = 'Auto-Select / Mix Mode (Best Available)';
-                        if (currentValue === 'any') {
-                            anyOption.selected = true;
-                        }
-                        select.appendChild(anyOption);
-                        
-                        data.countries.forEach(country => {
-                            const option = document.createElement('option');
-                            option.value = country.id;
-                            option.textContent = `${country.name} (+${country.code})`;
-                            if (country.id == currentValue) {
-                                option.selected = true;
-                            }
-                            select.appendChild(option);
-                        });
-                    }
-                })
-                .catch(err => console.error("Error refreshing active countries:", err));
-        });
+
 
         @if(session('generated_number'))
             function closeModal() {
