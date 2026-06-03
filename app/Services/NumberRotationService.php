@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\PhoneNumber;
 use App\Models\SystemAuditLog;
+use App\Models\Setting;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Request;
 
@@ -92,22 +93,49 @@ class NumberRotationService
     {
         if (empty($apiNumbers)) return null;
 
+        $cooldownHours = (int)(Setting::where('key', 'cooldown_hours')->value('value') ?? 24);
+        $busyLockMinutes = (int)(Setting::where('key', 'busy_lock_minutes')->value('value') ?? 15);
+
         $scoredNumbers = [];
 
         foreach ($apiNumbers as $numValue) {
-            // Find existing number in database
+            // 1. Check if the number is currently busy (active session by ANY user for ANY service within busy lock window)
+            $isBusy = PhoneNumber::where('number', 'like', "%{$numValue}")
+                ->where('status', 'active')
+                ->where('created_at', '>=', now()->subMinutes($busyLockMinutes))
+                ->exists();
+
+            if ($isBusy) {
+                self::logEvent('NUMBER_FILTERED', "Number +{$numValue} filtered out: Currently active (busy lock).");
+                continue;
+            }
+
+            // 2. Check if the number is under cooldown for this specific service
+            // (discarded or closed within the cooldown window)
+            $underCooldown = PhoneNumber::where('number', 'like', "%{$numValue}")
+                ->where('service', $serviceName)
+                ->where(function($query) {
+                    $query->where('status', 'discarded')
+                          ->orWhere('status', 'closed');
+                })
+                ->where('updated_at', '>=', now()->subHours($cooldownHours))
+                ->exists();
+
+            if ($underCooldown) {
+                self::logEvent('NUMBER_FILTERED', "Number +{$numValue} filtered out: In cooldown period ({$cooldownHours}h) for " . ucfirst($serviceName));
+                continue;
+            }
+
+            // 3. Check reputation from the latest record of this number for this service
             $dbNumber = PhoneNumber::where('number', 'like', "%{$numValue}")
                 ->where('service', $serviceName)
+                ->orderBy('id', 'desc')
                 ->first();
 
             if ($dbNumber) {
-                // If the number is marked inactive, skip it
-                if ($dbNumber->status !== 'active') {
-                    continue;
-                }
-                
                 // Skip if reputation score is too low
                 if ($dbNumber->reputation_score < 40) {
+                    self::logEvent('NUMBER_FILTERED', "Number +{$numValue} filtered out: Low reputation score ({$dbNumber->reputation_score}) for " . ucfirst($serviceName));
                     continue;
                 }
 
@@ -117,7 +145,7 @@ class NumberRotationService
                     'last_used' => $dbNumber->last_used_at ? strtotime($dbNumber->last_used_at) : 0
                 ];
             } else {
-                // Fresh numbers start with a clean slate (score 100, last used never/0)
+                // Fresh numbers start with a clean slate
                 $scoredNumbers[] = [
                     'number' => $numValue,
                     'reputation' => 100,
