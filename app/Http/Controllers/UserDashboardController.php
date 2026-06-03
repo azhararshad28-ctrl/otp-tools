@@ -42,9 +42,20 @@ class UserDashboardController extends Controller
 
     public function index()
     {
-        $countries = Country::where('status', true)->get();
         $numbers = PhoneNumber::where('user_id', Auth::id())->orderBy('created_at', 'desc')->get();
-        return view('user.dashboard', compact('countries', 'numbers'));
+        return view('user.dashboard', compact('numbers'));
+    }
+
+    public function showGenerate()
+    {
+        $countries = Country::where('status', true)->get();
+        return view('user.generate', compact('countries'));
+    }
+
+    public function showNumbers()
+    {
+        $numbers = PhoneNumber::where('user_id', Auth::id())->orderBy('created_at', 'desc')->get();
+        return view('user.numbers', compact('numbers'));
     }
 
     public function generate(Request $request, ProviderInterface $apiService)
